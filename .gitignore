@@ -1,17 +1,15 @@
-# node
+# Node
 node_modules/
 npm-debug.log*
 
-# env
+# Environment
 .env
 
-# build
-dist/
-build/
-
-# hardhat
+# Hardhat
 artifacts/
 cache/
+coverage/
+typechain-types/
 
 # OS
 .DS_Store
