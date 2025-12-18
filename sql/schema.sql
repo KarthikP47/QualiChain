@@ -1,0 +1,32 @@
+CREATE DATABASE IF NOT EXISTS bosm_project;
+USE bosm_project;
+
+CREATE TABLE users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(50) UNIQUE NOT NULL,
+  email VARCHAR(100) UNIQUE NOT NULL,
+  password VARCHAR(255) NOT NULL,
+  wallet_address VARCHAR(100) DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE posts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  title VARCHAR(255),
+  body TEXT,
+  upvotes INT DEFAULT 0,
+  quality_score FLOAT DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE rewards (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  post_id INT,
+  tokens_awarded FLOAT,
+  tx_hash VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
