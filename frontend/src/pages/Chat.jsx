@@ -35,7 +35,7 @@ export default function Chat() {
 
     // Only create socket if it doesn't exist or is disconnected
     if (!socketRef.current || !socketRef.current.connected) {
-      socketRef.current = io("https://fine-bugs-kiss.loca.lt", {
+      socketRef.current = io("https://bitter-bears-drum.loca.lt", {
         transports: ["websocket", "polling"], // Allow fallback to polling
         reconnection: true,
         reconnectionDelay: 1000,
