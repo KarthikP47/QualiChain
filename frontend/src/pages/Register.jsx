@@ -4,11 +4,11 @@ import api from "../api";
 
 export default function Register() {
   const [username, setUsername] = useState("");
-  const [email, setEmail]       = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [wallet, setWallet]     = useState("");
-  const [message, setMessage]   = useState("");
-  const [error, setError]       = useState("");
+  const [wallet, setWallet] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -28,7 +28,7 @@ export default function Register() {
         localStorage.setItem("token", res.data.token);
         localStorage.setItem("user", JSON.stringify(res.data.user));
         setMessage("Registered successfully! Redirecting to feed...");
-        setTimeout(() => navigate("/"), 800);
+        setTimeout(() => window.location.href = "/", 800);
       } else {
         setError(res.data.error || "Registration failed");
       }

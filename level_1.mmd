@@ -1,0 +1,48 @@
+flowchart TD
+    %% External Entities
+    User["User (Frontend Client)"]
+    Blockchain["Blockchain Network (Smart Contracts)"]
+
+    %% Processes (Circles)
+    P1(("1.0 User Management"))
+    P2(("2.0 Content Management"))
+    P3(("3.0 Chat System"))
+    P4(("4.0 Rewards & Gamification"))
+    P5(("5.0 Blockchain Gateway"))
+
+    %% Data Stores (Open Rectangles)
+    D1[/"D1: Users DB"\]
+    D2[/"D2: Posts/Comments DB"\]
+    D3[/"D3: Votes DB"\]
+    D4[/"D4: Badges & Rewards DB"\]
+    D5[/"D5: Chat DB"\]
+
+    %% --- Data Flows ---
+    
+    %% User Interactions
+    User -- "Credentials" --> P1
+    P1 -- "Auth Token" --> User
+    
+    User -- "Posts, Comments, Votes" --> P2
+    P2 -- "Main Feed, Quality Scores" --> User
+
+    User -- "Live Messages" --> P3
+    P3 -- "Real-time Streams" --> User
+
+    %% Process to Data Stores
+    P1 <--> D1
+    P2 <--> D2
+    P2 <--> D3
+    P3 <--> D5
+    P4 <--> D4
+
+    %% Internal Process Communications
+    P2 -. "Content & Vote Events" .-> P4
+    P4 -. "Read User Stats" .-> D1
+    P4 -. "Reward Txs" .-> P5
+    P3 -. "Web3 Actions" .-> P5
+
+    %% Blockchain Integration
+    P5 -- "Contract Calls" --> Blockchain
+    Blockchain -- "Tx Confirmations" --> P5
+    P5 -. "Update Tx Hash" .-> D4

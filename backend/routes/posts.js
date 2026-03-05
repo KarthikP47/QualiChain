@@ -1,256 +1,572 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const pool = require('../db');
-const { distributor } = require('../contracts');
-const { ethers } = require('ethers');
+const pool = require("../db");
+const { distributor } = require("../contracts");
+const { ethers } = require("ethers");
+const { PythonShell } = require("python-shell");
+const path = require("path");
+const { checkAndAwardBadges } = require("../badges");
+const multer = require("multer");
+const axios = require("axios");
+const FormData = require("form-data");
+const fs = require("fs");
+
+// Configure Multer Storage for post image attachments
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, path.join(__dirname, "../uploads"));
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, file.fieldname + "-post-" + uniqueSuffix + ext);
+  },
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB Limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed."));
+    }
+  },
+});
+
+/* ---------------------------------------------------------
+   REAL ML QUALITY SCORE (Random Forest via Python)
+--------------------------------------------------------- */
+
+function getMLQuality(body, upvotes, downvotes) {
+  return new Promise((resolve, reject) => {
+    const pyshell = new PythonShell("score.py", {
+      mode: "text",
+      pythonOptions: ["-u"],
+      scriptPath: path.join(__dirname, "../ml"),
+    });
 
 
-// Simple content-quality scoring.
-// You can later mention this formula in your report.
-// --- RandomForest-style ML quality model ---
-// Features: lengthNorm, upvoteNorm, uniqueNorm
-// Output: probability that content is "high quality" (0 to 1)
-
-function randomForestQuality(lengthNorm, upvoteNorm, uniqueNorm) {
-  // Tree 1: prefers long + some upvotes
-  const t1 = (lengthNorm > 0.5 && upvoteNorm > 0.25) ? 1 : 0;
-
-  // Tree 2: prefers strong community support or very unique text
-  const t2 = (upvoteNorm > 0.5 || uniqueNorm > 0.6) ? 1 : 0;
-
-  // Tree 3: prefers very long OR medium length with decent upvotes & uniqueness
-  const t3 = (lengthNorm > 0.8 || (lengthNorm > 0.4 && upvoteNorm > 0.3 && uniqueNorm > 0.4)) ? 1 : 0;
-
-  const votes = t1 + t2 + t3;
-  const prob = votes / 3; // 0, 1/3, 2/3, or 1
-
-  return prob;
-}
-
-// Main quality scoring function
-function computeQualityScore(body, upvotes) {
-  const text = (body || "").trim();
-  if (!text) return 0;
-
-  const words = text.split(/\s+/).filter(Boolean);
-  const total = words.length || 1;
-  const unique = new Set(words.map((w) => w.toLowerCase())).size;
-
-  // Normalized features (0–1)
-  const lengthNorm = Math.min(1, total / 200);   // >=200 words => 1
-  const upvotesNorm = Math.min(1, upvotes / 8);  // >=8 upvotes => 1
-  const uniqueNorm = unique / total;             // 0–1
-
-  // Base weighted score (as before)
-  const W_LENGTH = 0.4;
-  const W_UPVOTES = 0.4;
-  const W_UNIQUE = 0.2;
-
-  const baseScore =
-    100 *
-    (W_LENGTH * lengthNorm +
-     W_UPVOTES * upvotesNorm +
-     W_UNIQUE * uniqueNorm);
-
-  // ML-like RandomForest probability [0–1]
-  const rfProb = randomForestQuality(lengthNorm, upvotesNorm, uniqueNorm);
-
-  // Combine: if RF thinks content is bad, reduce score; if good, keep it
-  // rfProb = 0   -> multiplier = 0.5 (cut score)
-  // rfProb = 0.5 -> multiplier = 0.75
-  // rfProb = 1   -> multiplier = 1   (keep score)
-  const multiplier = 0.5 + 0.5 * rfProb;
-  const finalScore = baseScore * multiplier;
-
-  return Number(finalScore.toFixed(2));
-}
-
-// GET /api/posts – list all posts
-router.get('/', async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      `SELECT p.*, u.username 
-       FROM posts p 
-       JOIN users u ON p.user_id = u.id
-       ORDER BY p.created_at DESC`
+    pyshell.send(
+      JSON.stringify({
+        body,
+        upvotes,
+        downvotes,
+      })
     );
+
+    let resolved = false;
+
+    pyshell.on("message", (message) => {
+      if (!resolved) {
+        resolved = true;
+        let msg = message.toString().trim();
+        // Handle "ML_PROB: 0.75" format or just "0.75"
+        if (msg.includes("ML_PROB:")) {
+          msg = msg.split("ML_PROB:")[1].trim();
+        }
+        const val = parseFloat(msg);
+        if (isNaN(val)) {
+          reject(new Error("Invalid ML output: " + message));
+        } else {
+          resolve(val);
+        }
+      }
+    });
+
+
+    pyshell.end((err) => {
+      if (err) reject(err);
+    });
+  });
+}
+
+async function computeQualityScore(body, upvotes, downvotes) {
+  const mlProb = await getMLQuality(body, upvotes, downvotes);
+  return Math.round(mlProb * 100); // 0–100
+}
+
+/* ---------------------------------------------------------
+   GET ALL POSTS
+--------------------------------------------------------- */
+
+router.get("/", async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT p.*, u.username, u.avatar_url,
+             (SELECT COUNT(*) FROM post_comments WHERE post_id = p.id) as comment_count
+      FROM posts p
+      JOIN users u ON p.user_id = u.id
+      ORDER BY p.created_at DESC
+    `);
     res.json(rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// POST /api/posts – create post
-// body: { user_id, title, body }
-router.post('/', async (req, res) => {
+/* ---------------------------------------------------------
+   CREATE POST
+--------------------------------------------------------- */
+
+// We'll use upload.single('image') to parse potentially multipart form-data
+router.post("/", upload.single("image"), async (req, res) => {
   try {
     const { user_id, title, body } = req.body;
 
     if (!user_id || !body) {
-      return res.status(400).json({ error: 'Missing user_id or body' });
+      return res.status(400).json({ error: "Missing user_id or body" });
+    }
+
+    let image_url = null;
+    if (req.file) {
+      if (process.env.PINATA_API_KEY && process.env.PINATA_SECRET_API_KEY) {
+        // Upload to IPFS via Pinata
+        const formData = new FormData();
+        formData.append("file", fs.createReadStream(req.file.path));
+
+        const pinataMetadata = JSON.stringify({ name: req.file.filename });
+        formData.append("pinataMetadata", pinataMetadata);
+
+        const pinataOptions = JSON.stringify({ cidVersion: 1 });
+        formData.append("pinataOptions", pinataOptions);
+
+        try {
+          const pinataRes = await axios.post("https://api.pinata.cloud/pinning/pinFileToIPFS", formData, {
+            headers: {
+              ...formData.getHeaders(),
+              pinata_api_key: process.env.PINATA_API_KEY,
+              pinata_secret_api_key: process.env.PINATA_SECRET_API_KEY,
+            },
+            maxBodyLength: "Infinity", // Necessary for large files
+          });
+          const ipfsHash = pinataRes.data.IpfsHash;
+          // Use standard IPFS gateway format
+          image_url = `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
+
+          // Optionally delete the local file after uploading to IPFS
+          fs.unlinkSync(req.file.path);
+        } catch (ipfsErr) {
+          console.error("Error uploading to Pinata IPFS:", ipfsErr.response ? ipfsErr.response.data : ipfsErr.message);
+          // Fallback to local storage if IPFS fails
+          const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+          image_url = `${backendUrl}/uploads/${req.file.filename}`;
+        }
+      } else {
+        // Local upload fallback if Pinata keys aren't set
+        const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+        image_url = `${backendUrl}/uploads/${req.file.filename}`;
+      }
     }
 
     const [result] = await pool.query(
-      'INSERT INTO posts (user_id, title, body) VALUES (?,?,?)',
-      [user_id, title || null, body]
+      "INSERT INTO posts (user_id, title, body, upvotes, downvotes, image_url) VALUES (?,?,?,?,?,?)",
+      [user_id, title || null, body, 0, 0, image_url]
     );
 
     const postId = result.insertId;
 
-    // initial upvotes = 0
-    const score = computeQualityScore(body, 0);
+    const score = await computeQualityScore(body, 0, 0);
+
     await pool.query(
-      'UPDATE posts SET quality_score = ? WHERE id = ?',
+      "UPDATE posts SET quality_score = ? WHERE id = ?",
       [score, postId]
     );
 
-    res.json({ ok: true, postId, quality_score: score });
+    // Check for badges after creating post
+    const newlyAwardedBadges = await checkAndAwardBadges(user_id);
+
+    res.json({
+      ok: true,
+      postId,
+      quality_score: score,
+      newlyAwardedBadges: newlyAwardedBadges.length > 0 ? newlyAwardedBadges : undefined,
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// POST /api/posts/:id/upvote – increment upvotes and recompute score
-router.post('/:id/upvote', async (req, res) => {
+/* ---------------------------------------------------------
+   UPVOTE (TOGGLE)
+--------------------------------------------------------- */
+
+router.post("/:id/upvote", async (req, res) => {
   try {
     const postId = req.params.id;
     const { user_id } = req.body;
 
-    if (!user_id) {
-      return res.status(400).json({ error: 'Missing user_id' });
+    if (!user_id)
+      return res.status(400).json({ error: "Missing user_id" });
+
+    // If downvoted, remove the downvote first
+    const [downvoted] = await pool.query(
+      "SELECT id FROM post_downvotes WHERE post_id = ? AND user_id = ?",
+      [postId, user_id]
+    );
+    if (downvoted.length > 0) {
+      await pool.query(
+        "DELETE FROM post_downvotes WHERE post_id = ? AND user_id = ?",
+        [postId, user_id]
+      );
+      await pool.query(
+        "UPDATE posts SET downvotes = downvotes - 1 WHERE id = ? AND downvotes > 0",
+        [postId]
+      );
     }
 
-    // check if exists (already upvoted)
     const [existing] = await pool.query(
-      'SELECT id FROM post_upvotes WHERE post_id = ? AND user_id = ?',
+      "SELECT id FROM post_upvotes WHERE post_id = ? AND user_id = ?",
       [postId, user_id]
     );
 
     if (existing.length > 0) {
-      // => remove upvote
       await pool.query(
-        'DELETE FROM post_upvotes WHERE post_id = ? AND user_id = ?',
+        "DELETE FROM post_upvotes WHERE post_id = ? AND user_id = ?",
         [postId, user_id]
       );
-
       await pool.query(
-        'UPDATE posts SET upvotes = upvotes - 1 WHERE id = ? AND upvotes > 0',
+        "UPDATE posts SET upvotes = upvotes - 1 WHERE id = ? AND upvotes > 0",
         [postId]
       );
-
     } else {
-      // => add upvote
       await pool.query(
-        'INSERT INTO post_upvotes (post_id, user_id) VALUES (?, ?)',
+        "INSERT INTO post_upvotes (post_id, user_id) VALUES (?,?)",
         [postId, user_id]
       );
-
       await pool.query(
-        'UPDATE posts SET upvotes = upvotes + 1 WHERE id = ?',
+        "UPDATE posts SET upvotes = upvotes + 1 WHERE id = ?",
         [postId]
       );
     }
 
-    // update score
-    const [rows] = await pool.query(
-      'SELECT body, upvotes FROM posts WHERE id = ?',
+    const [[row]] = await pool.query(
+      "SELECT body, upvotes, downvotes FROM posts WHERE id = ?",
       [postId]
     );
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Post not found' });
-    }
 
-    const { body, upvotes } = rows[0];
-    const newScore = computeQualityScore(body, upvotes);
+    const newScore = await computeQualityScore(
+      row.body,
+      row.upvotes,
+      row.downvotes
+    );
 
     await pool.query(
-      'UPDATE posts SET quality_score = ? WHERE id = ?',
+      "UPDATE posts SET quality_score = ? WHERE id = ?",
+      [newScore, postId]
+    );
+
+    // Check for badges if upvoted (not removed)
+    let newlyAwardedBadges = [];
+    if (existing.length === 0) {
+      // Get post owner to check their badges
+      const [[postOwner]] = await pool.query(
+        "SELECT user_id FROM posts WHERE id = ?",
+        [postId]
+      );
+      if (postOwner) {
+        newlyAwardedBadges = await checkAndAwardBadges(postOwner.user_id);
+      }
+    }
+
+    res.json({
+      ok: true,
+      upvotes: row.upvotes,
+      downvotes: row.downvotes,
+      quality_score: newScore,
+      message: existing.length > 0 ? "removed" : "upvoted",
+      newlyAwardedBadges: newlyAwardedBadges.length > 0 ? newlyAwardedBadges : undefined,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Upvote toggle failed" });
+  }
+});
+
+/* ---------------------------------------------------------
+   DOWNVOTE (TOGGLE)
+--------------------------------------------------------- */
+
+router.post("/:id/downvote", async (req, res) => {
+  try {
+    const postId = req.params.id;
+    const { user_id } = req.body;
+
+    if (!user_id)
+      return res.status(400).json({ error: "Missing user_id" });
+
+    // If upvoted, remove the upvote first
+    const [upvoted] = await pool.query(
+      "SELECT id FROM post_upvotes WHERE post_id = ? AND user_id = ?",
+      [postId, user_id]
+    );
+    if (upvoted.length > 0) {
+      await pool.query(
+        "DELETE FROM post_upvotes WHERE post_id = ? AND user_id = ?",
+        [postId, user_id]
+      );
+      await pool.query(
+        "UPDATE posts SET upvotes = upvotes - 1 WHERE id = ? AND upvotes > 0",
+        [postId]
+      );
+    }
+
+    const [existing] = await pool.query(
+      "SELECT id FROM post_downvotes WHERE post_id = ? AND user_id = ?",
+      [postId, user_id]
+    );
+
+    if (existing.length > 0) {
+      await pool.query(
+        "DELETE FROM post_downvotes WHERE post_id = ? AND user_id = ?",
+        [postId, user_id]
+      );
+      await pool.query(
+        "UPDATE posts SET downvotes = downvotes - 1 WHERE id = ? AND downvotes > 0",
+        [postId]
+      );
+    } else {
+      await pool.query(
+        "INSERT INTO post_downvotes (post_id, user_id) VALUES (?,?)",
+        [postId, user_id]
+      );
+      await pool.query(
+        "UPDATE posts SET downvotes = downvotes + 1 WHERE id = ?",
+        [postId]
+      );
+    }
+
+    const [[row]] = await pool.query(
+      "SELECT body, upvotes, downvotes FROM posts WHERE id = ?",
+      [postId]
+    );
+
+    const newScore = await computeQualityScore(
+      row.body,
+      row.upvotes,
+      row.downvotes
+    );
+
+    await pool.query(
+      "UPDATE posts SET quality_score = ? WHERE id = ?",
       [newScore, postId]
     );
 
     res.json({
       ok: true,
-      upvotes,
+      upvotes: row.upvotes,
+      downvotes: row.downvotes,
       quality_score: newScore,
-      message: existing.length > 0 ? "removed" : "added"
+      message: existing.length > 0 ? "downvote removed" : "downvoted",
     });
-
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Toggle upvote error' });
+    res.status(500).json({ error: "Downvote toggle failed" });
   }
 });
 
+/* ---------------------------------------------------------
+   CLAIM REWARD
+--------------------------------------------------------- */
 
+router.post("/:id/claim", async (req, res) => {
+  try {
+    const postId = req.params.id;
+    const { user_id } = req.body;
 
-// POST /api/posts/:id/claim
-// body: { user_id }
-router.post('/:id/claim', async (req, res) => {
+    if (!user_id)
+      return res.status(400).json({ error: "Missing user_id" });
+
+    const [[post]] = await pool.query(
+      "SELECT * FROM posts WHERE id = ?",
+      [postId]
+    );
+    if (!post)
+      return res.status(404).json({ error: "Post not found" });
+
+    const [[user]] = await pool.query(
+      "SELECT * FROM users WHERE id = ?",
+      [user_id]
+    );
+    if (!user)
+      return res.status(404).json({ error: "User not found" });
+
+    if (!user.wallet_address) {
+      return res
+        .status(400)
+        .json({ error: "User has no wallet_address set" });
+    }
+
+    const quality = post.quality_score || 0;
+    const tokens = Number((quality * 0.1).toFixed(4));
+
+    if (tokens <= 0 || quality <= 0) {
+      return res
+        .status(400)
+        .json({ error: "Quality too low, no rewards to claim" });
+    }
+
+    let txHash = null;
+    let blockchainError = null;
+
+    // Try blockchain transaction (optional - can work without it)
+    try {
+      if (distributor && user.wallet_address) {
+        const tx = await distributor.award(
+          user.wallet_address,
+          ethers.parseUnits(tokens.toString(), 18),
+          Number(postId)
+        );
+        const receipt = await tx.wait();
+        txHash = receipt.hash;
+      }
+    } catch (blockchainErr) {
+      console.error("Blockchain transaction failed:", blockchainErr);
+      blockchainError = blockchainErr.message;
+      // Continue with database operations even if blockchain fails
+    }
+
+    // Record the reward (with or without blockchain tx)
+    await pool.query(
+      "INSERT INTO rewards (user_id, post_id, tokens_awarded, tx_hash) VALUES (?,?,?,?)",
+      [user_id, postId, tokens, txHash]
+    );
+
+    // Add tokens to user's vault
+    // Check if total_rewards column exists, if not, skip this update
+    try {
+      await pool.query(
+        "UPDATE users SET total_rewards = COALESCE(total_rewards, 0) + ? WHERE id = ?",
+        [tokens, user_id]
+      );
+    } catch (dbErr) {
+      // If column doesn't exist, log but continue
+      console.warn("total_rewards column might not exist:", dbErr.message);
+      // Try to add the column if it doesn't exist
+      try {
+        await pool.query("ALTER TABLE users ADD COLUMN total_rewards FLOAT DEFAULT 0");
+        await pool.query(
+          "UPDATE users SET total_rewards = ? WHERE id = ?",
+          [tokens, user_id]
+        );
+      } catch (alterErr) {
+        console.warn("Could not add total_rewards column:", alterErr.message);
+      }
+    }
+
+    // Reset quality_score to 0 after claiming
+    await pool.query(
+      "UPDATE posts SET quality_score = 0 WHERE id = ?",
+      [postId]
+    );
+
+    // Check for badges after claiming reward
+    const newlyAwardedBadges = await checkAndAwardBadges(user_id);
+
+    res.json({
+      ok: true,
+      txHash: txHash,
+      tokens_awarded: tokens,
+      quality_score: 0, // Return reset score
+      blockchainError: blockchainError || undefined, // Include if blockchain failed
+      newlyAwardedBadges: newlyAwardedBadges.length > 0 ? newlyAwardedBadges : undefined,
+    });
+  } catch (err) {
+    console.error("Claim error:", err);
+    res.status(500).json({
+      error: "Claim failed",
+      details: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  }
+});
+
+/* ---------------------------------------------------------
+   DELETE POST
+--------------------------------------------------------- */
+
+router.delete("/:id", async (req, res) => {
   try {
     const postId = req.params.id;
     const { user_id } = req.body;
 
     if (!user_id) {
-      return res.status(400).json({ error: 'Missing user_id' });
+      return res.status(400).json({ error: "Missing user_id" });
     }
 
-    // get post
-    const [[post]] = await pool.query(
-      'SELECT * FROM posts WHERE id = ?',
-      [postId]
-    );
+    // Verify post exists and belongs to user
+    const [[post]] = await pool.query("SELECT * FROM posts WHERE id = ?", [postId]);
+
     if (!post) {
-      return res.status(404).json({ error: 'Post not found' });
+      return res.status(404).json({ error: "Post not found" });
     }
 
-    // get user wallet
-    const [[user]] = await pool.query(
-      'SELECT * FROM users WHERE id = ?',
-      [user_id]
-    );
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    if (!user.wallet_address) {
-      return res.status(400).json({ error: 'User has no wallet_address set' });
+    if (post.user_id !== parseInt(user_id)) {
+      return res.status(403).json({ error: "Not authorized to delete this post" });
     }
 
-    const quality = post.quality_score || 0;
+    // Delete related records first to avoid foreign key constraints (if any)
+    await pool.query("DELETE FROM post_upvotes WHERE post_id = ?", [postId]);
+    await pool.query("DELETE FROM post_downvotes WHERE post_id = ?", [postId]);
+    // The rewards table might also have a foreign key to the post
+    await pool.query("DELETE FROM rewards WHERE post_id = ?", [postId]);
 
-    // Simple token formula: 0.1 token per quality point
-    const tokens = Number((quality * 0.1).toFixed(4));
+    // Delete the post
+    await pool.query("DELETE FROM posts WHERE id = ?", [postId]);
 
-    if (tokens <= 0) {
-      return res.status(400).json({ error: 'Quality too low, no rewards' });
-    }
-
-    console.log(`Awarding ${tokens} tokens to ${user.wallet_address} for post ${postId}`);
-
-    const tx = await distributor.award(
-      user.wallet_address,
-      ethers.parseUnits(tokens.toString(), 18),
-      Number(postId)
-    );
-    const receipt = await tx.wait();
-
-    // record in rewards table
-    await pool.query(
-      'INSERT INTO rewards (user_id, post_id, tokens_awarded, tx_hash) VALUES (?,?,?,?)',
-      [user_id, postId, tokens, receipt.hash]
-    );
-
-    res.json({
-      ok: true,
-      txHash: receipt.hash,
-      tokens_awarded: tokens
-    });
+    res.json({ ok: true, message: "Post deleted successfully" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Claim failed', details: err.message });
+    console.error("Delete error:", err);
+    res.status(500).json({ error: "Server error during post deletion" });
   }
 });
 
+/* ---------------------------------------------------------
+   COMMENTS
+--------------------------------------------------------- */
+
+// GET /api/posts/:id/comments
+router.get("/:id/comments", async (req, res) => {
+  try {
+    const postId = req.params.id;
+    const [comments] = await pool.query(
+      `SELECT c.*, u.username, u.avatar_url 
+       FROM post_comments c
+       JOIN users u ON c.user_id = u.id
+       WHERE c.post_id = ?
+       ORDER BY c.created_at ASC`,
+      [postId]
+    );
+    res.json(comments);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch comments" });
+  }
+});
+
+// POST /api/posts/:id/comments
+router.post("/:id/comments", async (req, res) => {
+  try {
+    const postId = req.params.id;
+    const { user_id, content } = req.body;
+
+    if (!user_id || !content) {
+      return res.status(400).json({ error: "Missing user_id or content" });
+    }
+
+    await pool.query(
+      "INSERT INTO post_comments (post_id, user_id, content) VALUES (?, ?, ?)",
+      [postId, user_id, content]
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to post comment" });
+  }
+});
 
 module.exports = router;

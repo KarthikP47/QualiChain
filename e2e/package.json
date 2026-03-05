@@ -1,0 +1,16 @@
+{
+    "name": "e2e-tests",
+    "version": "1.0.0",
+    "description": "Functional tests for the project",
+    "scripts": {
+        "test": "playwright test"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.42.0",
+        "@types/node": "^20.0.0"
+    },
+    "dependencies": {
+        "chromedriver": "^146.0.0",
+        "selenium-webdriver": "^4.41.0"
+    }
+}

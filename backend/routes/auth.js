@@ -34,7 +34,7 @@ router.post('/register', async (req, res) => {
     const userId = result.insertId;
     const token = jwt.sign({ id: userId, username }, JWT_SECRET, { expiresIn: '1d' });
 
-    res.json({ ok: true, token, user: { id: userId, username, email, wallet_address } });
+    res.json({ ok: true, token, user: { id: userId, username, email, wallet_address, avatar_url: null } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -78,7 +78,8 @@ router.post('/login', async (req, res) => {
         id: user.id,
         username: user.username,
         email: user.email,
-        wallet_address: user.wallet_address
+        wallet_address: user.wallet_address,
+        avatar_url: user.avatar_url
       }
     });
   } catch (err) {

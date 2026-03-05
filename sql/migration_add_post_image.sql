@@ -1,0 +1,2 @@
+USE bosm_project;
+ALTER TABLE posts ADD COLUMN image_url VARCHAR(255) DEFAULT NULL;

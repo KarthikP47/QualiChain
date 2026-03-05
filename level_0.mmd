@@ -1,0 +1,14 @@
+flowchart TD
+    %% External Entities
+    User["User"]
+    Blockchain["Blockchain Network (Ethereum/Hardhat)"]
+
+    %% Main System Process
+    System(("0. Decentralized Social Platform"))
+
+    %% Data Flows
+    User -- "Registration, Login Data, Posts, Votes, Chat Messages" --> System
+    System -- "Content Feed, Profile Details, Live Chat Stream, Notifications" --> User
+
+    System -- "Tx Calls (Log Badges, Auth, Token Rewards)" --> Blockchain
+    Blockchain -- "Tx Confirmations, Event Logs, Contract State" --> System
