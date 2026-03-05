@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "https://shaggy-emus-say.loca.lt/api", // backend URL
+  baseURL: "https://true-parks-dig.loca.lt/api", // backend URL
   headers: {
     "Bypass-Tunnel-Reminder": "true",
   }
