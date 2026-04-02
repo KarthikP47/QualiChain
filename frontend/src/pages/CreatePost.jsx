@@ -5,7 +5,7 @@ import api from "../api";
 export default function CreatePost() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [category, setCategory] = useState("General");
+  const [category] = useState("General");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [imageFile, setImageFile] = useState(null);
@@ -66,9 +66,7 @@ export default function CreatePost() {
         formData.append("image", imageFile);
       }
 
-      const res = await api.post("/posts", formData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
+      const res = await api.post("/posts", formData);
 
       if (res.data.ok) {
         setMessage("Post created! Redirecting to feed...");

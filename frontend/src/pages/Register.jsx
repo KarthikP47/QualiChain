@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+// removed useNavigate
 import api from "../api";
 
 export default function Register() {
@@ -9,7 +9,6 @@ export default function Register() {
   const [wallet, setWallet] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();

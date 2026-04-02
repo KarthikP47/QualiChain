@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -14,8 +14,10 @@ export default function SearchResults() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const currentUserJson = localStorage.getItem("user");
-    const currentUser = currentUserJson ? JSON.parse(currentUserJson) : null;
+    const currentUser = useMemo(() => {
+        const json = localStorage.getItem("user");
+        return json ? JSON.parse(json) : null;
+    }, []);
 
     useEffect(() => {
         const fetchResults = async () => {
@@ -24,22 +26,25 @@ export default function SearchResults() {
             try {
                 const res = await api.get(`/search?q=${encodeURIComponent(query)}`);
 
-                // Similarly fetch upvotes and downvotes to correctly show scores, if required
                 let postsList = res.data.posts || [];
                 const usersList = res.data.users || [];
 
                 if (currentUser) {
-                    const upvotedRes = await api.get(`/users/${currentUser.id}/upvotes`);
-                    const downvotedRes = await api.get(`/users/${currentUser.id}/downvotes`);
+                    try {
+                        const upvotedRes = await api.get(`/users/${currentUser.id}/upvotes`);
+                        const downvotedRes = await api.get(`/users/${currentUser.id}/downvotes`);
 
-                    const upvotedIds = new Set(upvotedRes.data.map((p) => p.post_id));
-                    const downvotedIds = new Set(downvotedRes.data.map((p) => p.post_id));
+                        const upvotedIds = new Set(upvotedRes.data.map((p) => p.post_id));
+                        const downvotedIds = new Set(downvotedRes.data.map((p) => p.post_id));
 
-                    postsList = postsList.map((p) => ({
-                        ...p,
-                        hasUpvoted: upvotedIds.has(p.id),
-                        hasDownvoted: downvotedIds.has(p.id),
-                    }));
+                        postsList = postsList.map((p) => ({
+                            ...p,
+                            hasUpvoted: upvotedIds.has(p.id),
+                            hasDownvoted: downvotedIds.has(p.id),
+                        }));
+                    } catch (voteErr) {
+                        console.error("Error fetching user votes:", voteErr);
+                    }
                 }
 
                 setPosts(postsList);
@@ -59,7 +64,7 @@ export default function SearchResults() {
             setUsers([]);
             setLoading(false);
         }
-    }, [query]);
+    }, [query, currentUser?.id]);
 
     if (loading) {
         return (

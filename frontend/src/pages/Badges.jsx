@@ -9,6 +9,7 @@ export default function Badges() {
 
   const userJson = localStorage.getItem("user");
   const user = userJson ? JSON.parse(userJson) : null;
+  const userId = user?.id;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -19,8 +20,8 @@ export default function Badges() {
         setError("");
         setBadgeData(null); // Clear previous data
 
-        if (user && user.id) {
-          const res = await api.get(`/badges/${user.id}/status`);
+        if (userId) {
+          const res = await api.get(`/badges/${userId}/status`);
           if (mountedRef.current) {
             console.log("Badge data received:", res.data);
             console.log("First badge imageUrl:", res.data?.badges?.[0]?.imageUrl?.substring(0, 100));
@@ -77,7 +78,7 @@ export default function Badges() {
     return () => {
       mountedRef.current = false;
     };
-  }, [user?.id]); // Only depend on user.id, not the whole user object
+  }, [userId]);
 
   if (loading) {
     return (
@@ -198,7 +199,7 @@ export default function Badges() {
                     cursor: "pointer",
                     position: "relative"
                   }}
-                  title={badge.description}
+                  title={`${badge.badge_name || badge.name}: ${badge.description}`}
                   onMouseEnter={(e) => {
                     if (badge.earned) {
                       e.currentTarget.style.transform = "translateY(-4px)";
@@ -230,14 +231,14 @@ export default function Badges() {
                     {badge.imageUrl ? (
                       <img
                         src={badge.imageUrl}
-                        alt={badge.name}
+                        alt={badge.badge_name || badge.name}
                         style={{
                           width: "100%",
                           height: "100%",
                           objectFit: "contain"
                         }}
                         onError={(e) => {
-                          console.error("Failed to load badge image:", badge.name, badge.imageUrl?.substring(0, 50));
+                          console.error("Failed to load badge image:", badge.badge_name || badge.name, badge.imageUrl?.substring(0, 50));
                           e.target.style.display = "none";
                           e.target.nextSibling.style.display = "block";
                         }}
@@ -260,7 +261,7 @@ export default function Badges() {
                     marginBottom: "0.25rem",
                     opacity: badge.earned ? 1 : 0.6
                   }}>
-                    {badge.name}
+                    {badge.badge_name || badge.name}
                   </div>
                   <div style={{
                     fontSize: "0.7rem",

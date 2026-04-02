@@ -52,7 +52,7 @@ test.describe.serial('End-to-end user flows', () => {
         // -----------------------------------------
         await page.goto('/login');
 
-        await page.fill('input[type="email"]', testUser.email);
+        await page.fill('input[type="text"]', testUser.email);
         await page.fill('input[type="password"]', testUser.password);
         await page.click('button[type="submit"]');
 
@@ -71,7 +71,7 @@ test.describe.serial('End-to-end user flows', () => {
     test('Flow 2: Creating a Post', async ({ page }) => {
         // First, login
         await page.goto('/login');
-        await page.fill('input[type="email"]', testUser.email);
+        await page.fill('input[type="text"]', testUser.email);
         await page.fill('input[type="password"]', testUser.password);
         await page.click('button[type="submit"]');
         await page.waitForURL('**/');

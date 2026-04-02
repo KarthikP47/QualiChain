@@ -5,9 +5,9 @@ const pool = require('./db');
  */
 async function checkAndAwardBadges(userId) {
   try {
-    // Get user statistics
+    // Get user statistics safely
     const [[user]] = await pool.query(
-      'SELECT id, created_at, total_rewards FROM users WHERE id = ?',
+      'SELECT id, created_at FROM users WHERE id = ?',
       [userId]
     );
     
@@ -27,13 +27,19 @@ async function checkAndAwardBadges(userId) {
     );
     const postCount = postStats?.post_count || 0;
 
-    // Get reward count
-    const [[rewardStats]] = await pool.query(
-      'SELECT COUNT(*) AS reward_count, COALESCE(SUM(tokens_awarded), 0) AS total_tokens FROM rewards WHERE user_id = ?',
-      [userId]
-    );
-    const rewardCount = rewardStats?.reward_count || 0;
-    const totalTokens = rewardStats?.total_tokens || 0;
+    // Get reward count safely
+    let rewardCount = 0;
+    let totalTokens = 0;
+    try {
+      const [[rewardStats]] = await pool.query(
+        'SELECT COUNT(*) AS reward_count, COALESCE(SUM(tokens_awarded), 0) AS total_tokens FROM rewards WHERE user_id = ?',
+        [userId]
+      );
+      rewardCount = rewardStats?.reward_count || 0;
+      totalTokens = rewardStats?.total_tokens || 0;
+    } catch (e) {
+      // rewards table might not exist yet
+    }
 
     // Get max quality score
     const [[qualityStats]] = await pool.query(
@@ -87,10 +93,10 @@ async function checkAndAwardBadges(userId) {
           } else if (badge.badge_key === 'early_adopter') {
             // Check if user is in first 100 users
             const [[userRank]] = await pool.query(
-              'SELECT COUNT(*) AS rank FROM users WHERE id <= ?',
+              'SELECT COUNT(*) AS user_rank FROM users WHERE id <= ?',
               [userId]
             );
-            shouldAward = (userRank?.rank || 0) <= badge.requirement_value;
+            shouldAward = (userRank?.user_rank || 0) <= badge.requirement_value;
           }
           break;
       }

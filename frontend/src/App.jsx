@@ -9,7 +9,10 @@ import Chat from "./pages/Chat.jsx";
 import { useTheme } from "./ThemeContext.jsx";
 import Avatar from "./components/Avatar.jsx";
 import SearchResults from "./pages/SearchResults.jsx";
+import UserProfile from "./pages/UserProfile.jsx";
 import { useState } from "react";
+
+import logo from "./assets/logo.png";
 
 
 function App() {
@@ -23,8 +26,10 @@ function App() {
   return (
     <div className="app-root">
       <nav className="navbar">
-        <div className="nav-left">
-          <div className="nav-logo" />
+        <div className="nav-left" onClick={() => navigate("/")} style={{ cursor: "pointer" }}>
+          <div className="nav-logo">
+            <img src={logo} alt="QualiChain Logo" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          </div>
           <div style={{ marginRight: "1rem" }}>
             <div className="nav-title">QUALICHAIN</div>
             <div style={{ fontSize: "0.85rem", color: "var(--accent)", fontWeight: "500", textTransform: "uppercase", letterSpacing: "1px" }}>
@@ -213,6 +218,7 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/profile" element={<Profile />} />
+              <Route path="/user/:id" element={<UserProfile />} />
               <Route path="/badges" element={<Badges />} />
               <Route path="/chat" element={<Chat />} />
               <Route path="/search" element={<SearchResults />} />
@@ -286,6 +292,23 @@ function App() {
                 </div>
               </div>
 
+              {/* Web3 Contracts Panel */}
+              <div className="panel panel-secondary" style={{ padding: "1.5rem", border: "1px solid rgba(0, 240, 255, 0.3)", background: "var(--bg-card-hover)" }}>
+                <h3 className="sidebar-section-title" style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--accent)" }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+                  Live on Sepolia
+                </h3>
+                <p className="sidebar-text" style={{ fontSize: "0.85rem", marginTop: "1rem", marginBottom: "0.5rem" }}>
+                  Smart Contracts deployed explicitly on Sepolia Network for demo purposes.
+                </p>
+                <div style={{ fontSize: "0.75rem", fontFamily: "monospace", color: "var(--text-muted)", wordBreak: "break-all", background: "var(--bg-card)", padding: "0.5rem", borderRadius: "8px" }}>
+                  <strong>$BOSM Token</strong><br/>
+                  0x7A5...4c2F<br/><br/>
+                  <strong>Reward Distributor</strong><br/>
+                  0x9B1...d8eA
+                </div>
+              </div>
+
               {/* Community Stats Panel */}
               <div className="panel panel-secondary" style={{ padding: "1.5rem" }}>
                 <h3 className="sidebar-section-title">Platform Stats</h3>
@@ -296,7 +319,7 @@ function App() {
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span className="sidebar-text">Tokens Rewarded</span>
-                    <span style={{ fontWeight: "600", color: "var(--accent)", textShadow: "0 0 10px rgba(0,240,255,0.3)" }}>128.5k QUALI</span>
+                    <span style={{ fontWeight: "600", color: "var(--accent)", textShadow: "0 0 10px rgba(0,240,255,0.3)" }}>128.5k BOSM</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span className="sidebar-text">Posts Today</span>

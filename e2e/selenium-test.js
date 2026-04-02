@@ -40,8 +40,8 @@ async function runSeleniumTests() {
         // Login again
         console.log("  -> Securely Logging back in...");
         await driver.get('http://localhost:5173/login');
-        await driver.wait(until.elementLocated(By.xpath('//label[text()="Email"]')), 5000);
-        await driver.findElement(By.xpath('//label[text()="Email"]/following-sibling::input')).sendKeys(email);
+        await driver.wait(until.elementLocated(By.xpath('//label[text()="Email or Username"]')), 5000);
+        await driver.findElement(By.xpath('//label[text()="Email or Username"]/following-sibling::input')).sendKeys(email);
         await driver.findElement(By.xpath('//label[text()="Password"]/following-sibling::input')).sendKeys(testPassword);
         await driver.findElement(By.css('button[type="submit"]')).click();
         await driver.wait(until.urlIs('http://localhost:5173/'), 5000);

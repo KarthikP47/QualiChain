@@ -117,32 +117,31 @@ def apply_rule_based_penalties(text, ml_prob, upvotes, downvotes):
         ml_prob *= 0.5 # Moderate punish for middle-of-the-road scores
         
     # Rule 1: Too short posts get heavy penalty (Steemit posts are long)
-    if features['word_count'] < 20:
-        return 0.0  # Zero points for basically comments
-    elif features['word_count'] < 50:
-        ml_prob *= 0.1  # Extreme penalty for short blurbs
-    elif features['word_count'] < 100:
-        ml_prob *= 0.4  # Heavy penalty
-    elif features['word_count'] < 200:
+    if features['word_count'] < 15:
+        return 0.0  # Zero points for very tiny comments
+    elif features['word_count'] < 40:
+        ml_prob *= 0.4  # Moderate penalty for short blurbs
+    elif features['word_count'] < 80:
         ml_prob *= 0.8  # Light penalty
-    
+        
     # Rule 2: Jibberish detection - zero score
     if detect_jibberish(text):
         return 0.0
     
     # Rule 3: Very low vocabulary diversity (repetitive)
-    if features['word_count'] > 20 and features['unique_word_ratio'] < 0.4:
+    # Only applied if the post is significantly long. Short posts naturally repeat small words.
+    if features['word_count'] > 40 and features['unique_word_ratio'] < 0.35:
         ml_prob *= 0.0  # Zero for clearly repetitive spam
-    elif features['word_count'] > 20 and features['unique_word_ratio'] < 0.5:
-        ml_prob *= 0.2
+    elif features['word_count'] > 40 and features['unique_word_ratio'] < 0.45:
+        ml_prob *= 0.5
         
     # Rule 4: No sentence structure (all lowercase, no punctuation)
-    if features['word_count'] > 20:
-        if features['capitalization_ratio'] < 0.05 and features['punctuation_count'] < 5:
-            ml_prob *= 0.1  # Poor structure penalty
+    if features['word_count'] > 30:
+        if features['capitalization_ratio'] < 0.05 and features['punctuation_count'] < 3:
+            ml_prob *= 0.3  # Poor structure penalty (relaxed from 0.1)
     
     # Rule 5: Avg word length (catch "asdf asdf asdf" or "a b c d")
-    if features['avg_word_length'] < 3.0 and features['word_count'] > 20:
+    if features['avg_word_length'] < 2.5 and features['word_count'] > 30:
         ml_prob *= 0.0  # Likely jibberish
     
     # Rule 6: Negative vote ratio penalty (strict downvote handling)
@@ -160,47 +159,50 @@ def apply_rule_based_penalties(text, ml_prob, upvotes, downvotes):
     
     return max(0.0, min(1.0, ml_prob))  # Clamp between 0 and 1
 
-# Read input from Node
-try:
-    input_str = sys.stdin.read()
-    data = json.loads(input_str) if input_str.strip() else {}
-except Exception:
-    data = {}
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        data = json.loads(line)
+    except Exception:
+        data = {}
 
-text = str(data.get("body", "") or "")
-upvotes = int(data.get("upvotes", 0))
-downvotes = int(data.get("downvotes", 0))
+    text = str(data.get("body", "") or "")
+    upvotes = int(data.get("upvotes", 0))
+    downvotes = int(data.get("downvotes", 0))
+    req_id = data.get("req_id", "0")
 
-# Early exit for empty text
-if not text.strip():
-    print("ML_PROB: 0.0")
-    sys.exit(0)
+    if not text.strip():
+        print(json.dumps({"req_id": req_id, "ML_PROB": 0.0}))
+        sys.stdout.flush()
+        continue
 
-# Transform text
-X_text = tfidf.transform([text])
+    # Transform text
+    X_text = tfidf.transform([text])
 
-feat = calculate_readability_features(text)
-feature_matrix = [
-    feat['word_count'],
-    feat['char_count'],
-    feat['sentence_count'],
-    feat['avg_word_length'],
-    feat['unique_word_ratio'],
-    feat['capitalization_ratio']
-]
+    feat = calculate_readability_features(text)
+    feature_matrix = [
+        feat['word_count'],
+        feat['char_count'],
+        feat['sentence_count'],
+        feat['avg_word_length'],
+        feat['unique_word_ratio'],
+        feat['capitalization_ratio']
+    ]
 
-# Numeric features
-X_num = np.array([[upvotes, downvotes] + feature_matrix])
+    # Numeric features
+    X_num = np.array([[upvotes, downvotes] + feature_matrix])
 
-# Combine features
-X = hstack([X_text, X_num])
+    # Combine features
+    X = hstack([X_text, X_num])
 
-# Predict probability of high quality (class 1)
-ml_prob = model.predict_proba(X)[0][1]
+    # Predict probability of high quality (class 1)
+    ml_prob = model.predict_proba(X)[0][1]
 
-# Apply strict rule-based penalties
-final_prob = apply_rule_based_penalties(text, ml_prob, upvotes, downvotes)
+    # Apply strict rule-based penalties
+    final_prob = apply_rule_based_penalties(text, ml_prob, upvotes, downvotes)
 
-# Output probability using explicit format for backend parsing
-print(f"ML_PROB: {final_prob}")
-
+    # Output probability in JSON
+    print(json.dumps({"req_id": req_id, "ML_PROB": float(final_prob)}))
+    sys.stdout.flush()

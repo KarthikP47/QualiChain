@@ -39,46 +39,67 @@ const upload = multer({
    REAL ML QUALITY SCORE (Random Forest via Python)
 --------------------------------------------------------- */
 
+let persistentPyShell = null;
+let reqIdCounter = 0;
+const pendingRequests = new Map();
+
+function initPyShell() {
+  persistentPyShell = new PythonShell("score.py", {
+    mode: "text",
+    pythonOptions: ["-u"],
+    scriptPath: path.join(__dirname, "../ml"),
+  });
+
+  persistentPyShell.on("message", (message) => {
+    try {
+      const result = JSON.parse(message.trim());
+      const resId = result.req_id;
+      if (pendingRequests.has(resId)) {
+        pendingRequests.get(resId).resolve(result.ML_PROB);
+        pendingRequests.delete(resId);
+      }
+    } catch (e) {
+      // Ignored: not JSON format or initial messages
+    }
+  });
+
+  persistentPyShell.on("error", (err) => {
+    console.error("PyShell error:", err);
+  });
+}
+
+initPyShell();
+
 function getMLQuality(body, upvotes, downvotes) {
   return new Promise((resolve, reject) => {
-    const pyshell = new PythonShell("score.py", {
-      mode: "text",
-      pythonOptions: ["-u"],
-      scriptPath: path.join(__dirname, "../ml"),
+    if (!persistentPyShell) {
+      initPyShell();
+    }
+    const currentReqId = String(reqIdCounter++);
+    
+    const timeout = setTimeout(() => {
+      if (pendingRequests.has(currentReqId)) {
+        pendingRequests.delete(currentReqId);
+        resolve(0);
+      }
+    }, 15000);
+
+    pendingRequests.set(currentReqId, {
+      resolve: (val) => {
+        clearTimeout(timeout);
+        resolve(val);
+      },
+      reject
     });
 
-
-    pyshell.send(
+    persistentPyShell.send(
       JSON.stringify({
+        req_id: currentReqId,
         body,
         upvotes,
         downvotes,
       })
     );
-
-    let resolved = false;
-
-    pyshell.on("message", (message) => {
-      if (!resolved) {
-        resolved = true;
-        let msg = message.toString().trim();
-        // Handle "ML_PROB: 0.75" format or just "0.75"
-        if (msg.includes("ML_PROB:")) {
-          msg = msg.split("ML_PROB:")[1].trim();
-        }
-        const val = parseFloat(msg);
-        if (isNaN(val)) {
-          reject(new Error("Invalid ML output: " + message));
-        } else {
-          resolve(val);
-        }
-      }
-    });
-
-
-    pyshell.end((err) => {
-      if (err) reject(err);
-    });
   });
 }
 
@@ -248,11 +269,23 @@ router.post("/:id/upvote", async (req, res) => {
       [postId]
     );
 
-    const newScore = await computeQualityScore(
+    const baseScore = await computeQualityScore(
       row.body,
       row.upvotes,
       row.downvotes
     );
+
+    // Subtract already claimed score (1 token = 10 score points)
+    let claimedScore = 0;
+    try {
+      const [[rewardStats]] = await pool.query(
+        "SELECT COALESCE(SUM(tokens_awarded), 0) as total_tokens FROM rewards WHERE post_id = ?",
+        [postId]
+      );
+      claimedScore = (rewardStats.total_tokens || 0) * 10;
+    } catch (e) {}
+
+    const newScore = Math.max(0, Math.round(baseScore - claimedScore));
 
     await pool.query(
       "UPDATE posts SET quality_score = ? WHERE id = ?",
@@ -344,11 +377,23 @@ router.post("/:id/downvote", async (req, res) => {
       [postId]
     );
 
-    const newScore = await computeQualityScore(
+    const baseScore = await computeQualityScore(
       row.body,
       row.upvotes,
       row.downvotes
     );
+
+    // Subtract already claimed score (1 token = 10 score points)
+    let claimedScore = 0;
+    try {
+      const [[rewardStats]] = await pool.query(
+        "SELECT COALESCE(SUM(tokens_awarded), 0) as total_tokens FROM rewards WHERE post_id = ?",
+        [postId]
+      );
+      claimedScore = (rewardStats.total_tokens || 0) * 10;
+    } catch (e) {}
+
+    const newScore = Math.max(0, Math.round(baseScore - claimedScore));
 
     await pool.query(
       "UPDATE posts SET quality_score = ? WHERE id = ?",

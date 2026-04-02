@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+// removed useNavigate
 import api from "../api";
 
 export default function Login() {
@@ -7,7 +7,6 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -43,10 +42,10 @@ export default function Login() {
 
       <form className="form" onSubmit={handleSubmit}>
         <div className="form-group">
-          <label className="label">Email</label>
+          <label className="label">Email or Username</label>
           <input
             className="input"
-            type="email"
+            type="text"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required

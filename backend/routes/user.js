@@ -74,6 +74,16 @@ router.get('/:id/summary', async (req, res) => {
       imageUrl: getBadgeImageUrl(badge)
     }));
 
+    // get follower and following lists
+    const [followersList] = await pool.query(
+      'SELECT u.id, u.username, u.avatar_url FROM follows f JOIN users u ON f.follower_id = u.id WHERE f.following_id = ?',
+      [userId]
+    );
+    const [followingList] = await pool.query(
+      'SELECT u.id, u.username, u.avatar_url FROM follows f JOIN users u ON f.following_id = u.id WHERE f.follower_id = ?',
+      [userId]
+    );
+
     res.json({
       user,
       totals: {
@@ -82,7 +92,9 @@ router.get('/:id/summary', async (req, res) => {
         postsCount: postAgg.postsCount || 0
       },
       recentRewards,
-      badges: badgesWithImages
+      badges: badgesWithImages,
+      followersList,
+      followingList
     });
   } catch (err) {
     console.error(err);
@@ -153,6 +165,87 @@ router.post('/:id/avatar/upload', upload.single('avatar'), async (req, res) => {
   } catch (err) {
     console.error("Avatar upload error:", err);
     res.status(500).json({ error: 'Failed to upload avatar image' });
+  }
+});
+
+// GET /api/users/:id/public_profile
+router.get('/:id/public_profile', async (req, res) => {
+  try {
+    const targetUserId = req.params.id;
+    const callerId = req.query.caller_id || null;
+
+    // basic user info
+    const [[user]] = await pool.query(
+      'SELECT id, username, wallet_address, created_at, avatar_url FROM users WHERE id = ?',
+      [targetUserId]
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Followers & Following
+    const [followersList] = await pool.query('SELECT u.id, u.username, u.avatar_url FROM follows f JOIN users u ON f.follower_id = u.id WHERE f.following_id = ?', [targetUserId]);
+    const [followingList] = await pool.query('SELECT u.id, u.username, u.avatar_url FROM follows f JOIN users u ON f.following_id = u.id WHERE f.follower_id = ?', [targetUserId]);
+    
+    // Is following?
+    let isFollowing = false;
+    if (callerId && String(callerId) !== String(targetUserId)) {
+      const [[followStatus]] = await pool.query('SELECT id FROM follows WHERE follower_id = ? AND following_id = ?', [callerId, targetUserId]);
+      if (followStatus) isFollowing = true;
+    }
+
+    // Get user badges
+    const badges = await getUserBadges(targetUserId);
+    const badgesWithImages = badges.map(badge => ({
+      ...badge,
+      imageUrl: getBadgeImageUrl(badge)
+    }));
+    
+    // Get user posts
+    const [posts] = await pool.query(
+      'SELECT id, title, body, excerpt, upvotes, downvotes, quality_score, image_url, created_at FROM posts WHERE user_id = ? ORDER BY created_at DESC',
+      [targetUserId]
+    );
+
+    res.json({
+      user,
+      followersCount: followersList.length,
+      followingCount: followingList.length,
+      followersList,
+      followingList,
+      isFollowing,
+      badges: badgesWithImages,
+      posts
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch public profile' });
+  }
+});
+
+// POST /api/users/:id/follow
+router.post('/:id/follow', async (req, res) => {
+  try {
+    const followingId = req.params.id;
+    const followerId = req.body.follower_id;
+    if (!followerId) return res.status(400).json({ error: "Missing follower_id" });
+    if (String(followingId) === String(followerId)) return res.status(400).json({ error: "Cannot follow yourself" });
+
+    // Ensure the target user exists
+    const [[targetUser]] = await pool.query('SELECT id FROM users WHERE id = ?', [followingId]);
+    if(!targetUser) return res.status(404).json({error: "User not found"});
+
+    const [[existing]] = await pool.query('SELECT id FROM follows WHERE follower_id = ? AND following_id = ?', [followerId, followingId]);
+    if (existing) {
+      await pool.query('DELETE FROM follows WHERE follower_id = ? AND following_id = ?', [followerId, followingId]);
+      return res.json({ following: false });
+    } else {
+      await pool.query('INSERT INTO follows (follower_id, following_id) VALUES (?, ?)', [followerId, followingId]);
+      return res.json({ following: true });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Follow error" });
   }
 });
 

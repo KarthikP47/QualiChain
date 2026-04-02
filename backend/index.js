@@ -24,7 +24,11 @@ const io = new Server(server, {
   }
 });
 
-app.use(cors());
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Bypass-Tunnel-Reminder", "x-wallet-address"]
+}));
 app.use(express.json());
 
 // Expose the uploads directory for serving profile images

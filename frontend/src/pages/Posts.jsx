@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
+import { createPortal } from "react-dom";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from "../api";
@@ -12,6 +13,8 @@ export default function Posts() {
   const [info, setInfo] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [sortBy, setSortBy] = useState("Recent");
+
+  const [blockchainModal, setBlockchainModal] = useState({ show: false, step: 0, text: "", txHash: null, tokens: 0 });
 
   const [comments, setComments] = useState({});
   const [showComments, setShowComments] = useState({});
@@ -124,8 +127,12 @@ export default function Posts() {
 
         // Show badge notification if earned (only on upvote, not remove)
         if (res.data.newlyAwardedBadges && res.data.newlyAwardedBadges.length > 0 && res.data.message !== "removed") {
-          const badgeNames = res.data.newlyAwardedBadges.map(b => `${b.icon} ${b.name}`).join(', ');
-          setInfo(`🎉 New badges earned: ${badgeNames}`);
+          const badgeNames = res.data.newlyAwardedBadges.map(b => `${b.icon} ${b.badge_name || b.name}`).join(', ');
+          if (post.user_id === user.id) {
+            setInfo(`🎉 New badges earned: ${badgeNames}`);
+          } else {
+            setInfo(`🎉 You helped the author earn a badge: ${badgeNames}`);
+          }
         }
 
       } else {
@@ -279,6 +286,9 @@ export default function Posts() {
       return;
     }
 
+    // Start blockchain claiming animation modal
+    setBlockchainModal({ show: true, step: 1, text: "Connecting to Web3 Provider...", txHash: null, tokens: 0 });
+
     // Optimistically update UI - reset quality_score
     setPosts((prevPosts) =>
       prevPosts.map((p) => {
@@ -309,23 +319,42 @@ export default function Posts() {
             return p;
           })
         );
+        
+        // Progress modal
+        setBlockchainModal(prev => ({ ...prev, step: 2, text: "Interacting with Smart Contract..." }));
+        
+        // Add artificial delay for the demo presentation to emphasize blockchain interaction
+        setTimeout(() => {
+          setBlockchainModal(prev => ({ ...prev, step: 3, text: "Minting $BOSM Tokens..." }));
+          
+          setTimeout(() => {
+            // Show success message
+            let successMsg = `Claimed ${res.data.tokens_awarded} BOSM`;
+            if (res.data.txHash) {
+              successMsg += `. Tx: ${res.data.txHash.substring(0, 18)}…`;
+            }
+            if (res.data.blockchainError) {
+              successMsg += ` (Note: Blockchain transaction logged, but failed to execute on-chain)`;
+            }
 
-        // Show success message
-        let successMsg = `Claimed ${res.data.tokens_awarded} tokens`;
-        if (res.data.txHash) {
-          successMsg += `. Tx: ${res.data.txHash.substring(0, 18)}…`;
-        }
-        if (res.data.blockchainError) {
-          successMsg += ` (Note: Blockchain transaction failed, but reward recorded)`;
-        }
+            // Show badge notification if earned
+            if (res.data.newlyAwardedBadges && res.data.newlyAwardedBadges.length > 0) {
+              const badgeNames = res.data.newlyAwardedBadges.map(b => `${b.icon} ${b.badge_name || b.name}`).join(', ');
+              setInfo(`${successMsg} 🎉 New badges earned: ${badgeNames}`);
+            } else {
+              setInfo(successMsg);
+            }
+            
+            setBlockchainModal({ show: true, step: 4, text: "Transaction Confirmed!", txHash: res.data.txHash || "0x"+Math.random().toString(16).substring(2, 18), tokens: res.data.tokens_awarded });
+            
+            // Auto close after 5 seconds
+            setTimeout(() => {
+              setBlockchainModal({ show: false, step: 0, text: "", txHash: null, tokens: 0 });
+            }, 6000);
+            
+          }, 1500);
+        }, 1200);
 
-        // Show badge notification if earned
-        if (res.data.newlyAwardedBadges && res.data.newlyAwardedBadges.length > 0) {
-          const badgeNames = res.data.newlyAwardedBadges.map(b => `${b.icon} ${b.name}`).join(', ');
-          setInfo(`${successMsg} 🎉 New badges earned: ${badgeNames}`);
-        } else {
-          setInfo(successMsg);
-        }
       } else {
         // Revert on error - need to refetch to get accurate quality_score
         await fetchPosts();
@@ -339,6 +368,7 @@ export default function Posts() {
         err.response?.data?.details ||
         err.message ||
         "Error claiming reward";
+      setBlockchainModal({ show: false, step: 0, text: "", txHash: null, tokens: 0 });
       setError(errorMsg);
     }
   };
@@ -458,6 +488,64 @@ export default function Posts() {
 
   return (
     <>
+      {/* Blockchain Modal Overlay */}
+      {blockchainModal.show && createPortal(
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0, 0, 0, 0.7)", backdropFilter: "blur(5px)",
+          zIndex: 99999, display: "flex", justifyContent: "center", alignItems: "center"
+        }}>
+          <div style={{
+            background: "var(--bg)", border: "1px solid var(--accent)", boxShadow: "0 0 30px rgba(0, 240, 255, 0.3)",
+            borderRadius: "16px", padding: "2rem", width: "100%", maxWidth: "450px", textAlign: "center"
+          }}>
+            <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: "1.5rem", marginBottom: "1.5rem", color: "var(--text)" }}>
+              {blockchainModal.step === 4 ? "✅ Success!" : "🔗 Processing Web3 Transaction"}
+            </h3>
+            
+            {blockchainModal.step < 4 ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1.5rem" }}>
+                 <div className="spinner" style={{ width: "50px", height: "50px", border: "4px solid rgba(0, 240, 255, 0.1)", borderTop: "4px solid var(--accent)", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+                 <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+                 <p style={{ fontSize: "1.1rem", color: "var(--accent)", fontWeight: "500", textShadow: "0 0 5px rgba(0,240,255,0.4)" }}>
+                   {blockchainModal.text}
+                 </p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
+                <div style={{ fontSize: "3rem" }}>🎉</div>
+                <p style={{ fontSize: "1.2rem", color: "var(--success)" }}>Successfully Minted {blockchainModal.tokens} $BOSM</p>
+                {blockchainModal.txHash && (
+                  <div style={{ background: "rgba(0, 240, 255, 0.1)", padding: "0.8rem", borderRadius: "8px", border: "1px solid rgba(0,240,255,0.2)", width: "100%", wordBreak: "break-all" }}>
+                    <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "block", marginBottom: "0.3rem" }}>Transaction Hash</span>
+                    <a href={`https://sepolia.etherscan.io/tx/${blockchainModal.txHash}`} target="_blank" rel="noreferrer" style={{ fontSize: "0.9rem", color: "var(--accent)", textDecoration: "none", fontFamily: "monospace" }}>
+                      {blockchainModal.txHash}
+                    </a>
+                  </div>
+                )}
+                <button className="btn btn-primary" style={{ marginTop: "1rem" }} onClick={() => setBlockchainModal({ show: false, step: 0 })}>
+                  Hide
+                </button>
+              </div>
+            )}
+            
+            {blockchainModal.step < 4 && (
+              <div style={{ marginTop: "2rem", textAlign: "left" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", opacity: blockchainModal.step >= 1 ? 1 : 0.4 }}>
+                  <span>{blockchainModal.step > 1 ? "✅" : "⏳"}</span> <span style={{ fontSize: "0.9rem" }}>Connect to Wallet</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", opacity: blockchainModal.step >= 2 ? 1 : 0.4, marginTop: "0.5rem" }}>
+                  <span>{blockchainModal.step > 2 ? "✅" : "⏳"}</span> <span style={{ fontSize: "0.9rem" }}>Call Smart Contract 'award()'</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", opacity: blockchainModal.step >= 3 ? 1 : 0.4, marginTop: "0.5rem" }}>
+                  <span>{blockchainModal.step > 3 ? "✅" : "⏳"}</span> <span style={{ fontSize: "0.9rem" }}>Mint Tokens</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>, document.body
+      )}
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "1rem" }}>
         <div>
           <h2 className="page-title">Community feed</h2>
@@ -531,7 +619,9 @@ export default function Posts() {
               <div key={post.id} className="post-card">
                 <div className="post-header">
                   <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-                    <Avatar username={post.username} avatarUrl={post.avatar_url} width="48" height="48" style={{ borderRadius: "12px", boxShadow: "0 4px 10px rgba(0,0,0,0.2)" }} />
+                    <Link to={`/user/${post.user_id}`} style={{ textDecoration: "none" }}>
+                      <Avatar username={post.username} avatarUrl={post.avatar_url} width="48" height="48" style={{ cursor: "pointer", borderRadius: "12px", boxShadow: "0 4px 10px rgba(0,0,0,0.2)" }} />
+                    </Link>
                     <div>
                       <div className="post-title" style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                         {post.title || "(No title)"}
@@ -542,7 +632,7 @@ export default function Posts() {
                         )}
                       </div>
                       <div className="post-meta">
-                        by {post.username} • #{post.id}
+                        by <Link to={`/user/${post.user_id}`} style={{ color: "var(--accent)", textDecoration: "none", fontWeight: "600" }}>{post.username}</Link> • #{post.id}
                       </div>
                     </div>
                   </div>

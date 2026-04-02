@@ -10,7 +10,8 @@ router.get('/', async (req, res) => {
             return res.json({ posts: [], users: [] });
         }
 
-        const searchTerm = `%${q.trim()}%`;
+        const searchTerm = `%${q.trim().toLowerCase()}%`;
+        const lowerSearchTerm = searchTerm;
 
         // Search for Posts
         const [posts] = await pool.query(`
@@ -18,18 +19,18 @@ router.get('/', async (req, res) => {
              (SELECT COUNT(*) FROM post_comments WHERE post_id = p.id) as comment_count
       FROM posts p
       JOIN users u ON p.user_id = u.id
-      WHERE p.title LIKE ? OR p.body LIKE ? OR u.username LIKE ?
+      WHERE LOWER(p.title) LIKE ? OR LOWER(p.body) LIKE ? OR LOWER(u.username) LIKE ?
       ORDER BY p.created_at DESC
       LIMIT 20
-    `, [searchTerm, searchTerm, searchTerm]);
+    `, [lowerSearchTerm, lowerSearchTerm, lowerSearchTerm]);
 
         // Search for Users
         const [users] = await pool.query(`
-      SELECT id, username, email, avatar_url, bio, reputation, total_rewards, wallet_address, created_at
+      SELECT id, username, email, avatar_url, wallet_address, created_at, total_rewards
       FROM users
-      WHERE username LIKE ? OR bio LIKE ?
+      WHERE LOWER(username) LIKE ?
       LIMIT 20
-    `, [searchTerm, searchTerm]);
+    `, [lowerSearchTerm]);
 
         res.json({ posts, users });
     } catch (err) {

@@ -23,6 +23,17 @@ export default function Chat() {
   const [modalRoomName, setModalRoomName] = useState("");
   const [modalPasswordInput, setModalPasswordInput] = useState("");
 
+  // Wallpaper State
+  const [wallpaper, setWallpaper] = useState(localStorage.getItem("chatWallpaper") || "");
+  const [showWallpaperMenu, setShowWallpaperMenu] = useState(false);
+
+  const handleSetWallpaper = (url) => {
+    setWallpaper(url);
+    if(url) localStorage.setItem("chatWallpaper", url);
+    else localStorage.removeItem("chatWallpaper");
+    setShowWallpaperMenu(false);
+  };
+
   const socketRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -35,7 +46,11 @@ export default function Chat() {
 
     // Only create socket if it doesn't exist or is disconnected
     if (!socketRef.current || !socketRef.current.connected) {
-      socketRef.current = io("https://put-rack-prison-allowed.trycloudflare.com", {
+      const socketUrl = import.meta.env.VITE_BACKEND_URL
+        ? import.meta.env.VITE_BACKEND_URL.replace(/\/api\/?$/, "")
+        : "http://localhost:4000";
+
+      socketRef.current = io(socketUrl, {
         transports: ["websocket", "polling"], // Allow fallback to polling
         reconnection: true,
         reconnectionDelay: 1000,
@@ -133,7 +148,7 @@ export default function Chat() {
         socketRef.current = null;
       }
     };
-  }, [user]); // Only depend on user, not currentRoom
+  }, [user, currentRoom]); // Add currentRoom to satisfy eslint
 
   // Scroll to bottom when new messages arrive
   const scrollToBottom = () => {
@@ -165,6 +180,7 @@ export default function Chat() {
         socketRef.current.on("connect", connectHandler);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentRoom]);
 
   const fetchRooms = async () => {
@@ -626,6 +642,52 @@ export default function Chat() {
                   <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
                     Room ID: {currentRoom.room_id_uint256}
                   </div>
+                  
+                  {/* Wallpaper Menu */}
+                  <div style={{ position: "relative" }}>
+                    <button
+                      onClick={() => setShowWallpaperMenu(!showWallpaperMenu)}
+                      style={{
+                        background: "var(--bg-soft)",
+                        border: "1px solid var(--border-subtle)",
+                        color: "var(--text)",
+                        padding: "0.25rem 0.75rem",
+                        borderRadius: "var(--radius-sm)",
+                        fontSize: "0.85rem",
+                        cursor: "pointer",
+                        transition: "all 0.2s"
+                      }}
+                    >
+                      🖼️ Wallpaper
+                    </button>
+                    {showWallpaperMenu && (
+                      <div style={{
+                        position: "absolute",
+                        top: "120%",
+                        right: 0,
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: "var(--radius-md)",
+                        padding: "0.5rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.25rem",
+                        zIndex: 10,
+                        minWidth: "150px",
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.2)"
+                      }}>
+                        <button className="btn" style={{ padding: "0.3rem", fontSize: "0.8rem", textAlign: "left", background: "transparent", color: "var(--text)" }} onClick={() => handleSetWallpaper("")}>Theme Default</button>
+                        <button className="btn" style={{ padding: "0.3rem", fontSize: "0.8rem", textAlign: "left", background: "transparent", color: "var(--text)" }} onClick={() => handleSetWallpaper("https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=1000&auto=format&fit=crop")}>Abstract Dark</button>
+                        <button className="btn" style={{ padding: "0.3rem", fontSize: "0.8rem", textAlign: "left", background: "transparent", color: "var(--text)" }} onClick={() => handleSetWallpaper("https://images.unsplash.com/photo-1518605368461-1e1e38ce8ba6?q=80&w=1000&auto=format&fit=crop")}>Football Core</button>
+                        <button className="btn" style={{ padding: "0.3rem", fontSize: "0.8rem", textAlign: "left", background: "transparent", color: "var(--text)" }} onClick={() => handleSetWallpaper("https://images.unsplash.com/photo-1550684376-efcbd6e3f031?q=80&w=1000&auto=format&fit=crop")}>Neon Grid</button>
+                        <button className="btn" style={{ padding: "0.3rem", fontSize: "0.8rem", textAlign: "left", background: "transparent", color: "var(--text)" }} onClick={() => {
+                          const url = window.prompt("Enter Wallpaper Image URL:");
+                          if(url) handleSetWallpaper(url);
+                        }}>Custom URL...</button>
+                      </div>
+                    )}
+                  </div>
+                  
                   {currentRoom.creator_wallet === user.wallet_address && (
                     <button
                       onClick={deleteRoom}
@@ -664,6 +726,13 @@ export default function Chat() {
                   flexDirection: "column",
                   gap: "1rem",
                   minHeight: 0,
+                  position: "relative",
+                  backgroundImage: wallpaper ? `url('${wallpaper}')` : "none",
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  backgroundAttachment: "local", // Scrolls nicely with messages
+                  backgroundColor: wallpaper ? "var(--bg-card)" : "transparent",
+                  boxShadow: wallpaper ? "inset 0 0 0 2000px rgba(0,0,0,0.5)" : "none" // dim the wallpaper so text is readable
                 }}
               >
                 {messages.length === 0 ? (
@@ -671,44 +740,80 @@ export default function Chat() {
                     No messages yet. Start the conversation!
                   </p>
                 ) : (
-                  messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      style={{
-                        padding: "0.75rem 1rem",
-                        borderRadius: "var(--radius-md)",
-                        background:
-                          msg.user_id === user.id
-                            ? "var(--accent-soft)"
-                            : "var(--bg-soft)",
-                        alignSelf: msg.user_id === user.id ? "flex-end" : "flex-start",
-                        maxWidth: "70%",
-                        wordWrap: "break-word",
-                        overflowWrap: "break-word",
-                        display: "flex",
-                        flexDirection: "column"
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-                        <Avatar username={msg.username} avatarUrl={msg.avatar_url} width="20" height="20" />
-                        <div style={{ fontSize: "0.85rem", fontWeight: "600" }}>
-                          {msg.username}
-                          {msg.user_id === user.id && " (You)"}
+                  messages.map((msg, index) => {
+                    const msgDate = new Date(msg.created_at);
+                    const prevDate = index > 0 ? new Date(messages[index - 1].created_at) : null;
+                    const showDateSeparator = !prevDate || prevDate.toDateString() !== msgDate.toDateString();
+
+                    const formatDateSeparator = (date) => {
+                      const today = new Date();
+                      const yesterday = new Date(today);
+                      yesterday.setDate(yesterday.getDate() - 1);
+                      if (date.toDateString() === today.toDateString()) return "Today";
+                      if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+                      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                    };
+
+                    return (
+                      <div key={msg.id} style={{ display: "contents" }}>
+                        {showDateSeparator && (
+                          <div style={{
+                            alignSelf: "center",
+                            background: "var(--bg-soft)",
+                            padding: "0.3rem 0.8rem",
+                            borderRadius: "16px",
+                            fontSize: "0.75rem",
+                            color: "var(--text-muted)",
+                            margin: "0.75rem 0 0.25rem 0",
+                            fontWeight: "bold",
+                            border: "1px solid var(--border-subtle)",
+                            boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+                          }}>
+                            {formatDateSeparator(msgDate)}
+                          </div>
+                        )}
+                        <div
+                          style={{
+                            padding: "0.75rem 1rem",
+                            borderRadius: "var(--radius-md)",
+                            background:
+                              msg.user_id === user.id
+                                ? "var(--accent-soft)"
+                                : "var(--bg-soft)",
+                            alignSelf: msg.user_id === user.id ? "flex-end" : "flex-start",
+                            maxWidth: "70%",
+                            wordWrap: "break-word",
+                            overflowWrap: "break-word",
+                            display: "flex",
+                            flexDirection: "column",
+                            boxShadow: "var(--shadow-sm)"
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+                            <Avatar username={msg.username} avatarUrl={msg.avatar_url} width="20" height="20" />
+                            <div style={{ fontSize: "0.85rem", fontWeight: "600" }}>
+                              {msg.username}
+                              {msg.user_id === user.id && " (You)"}
+                            </div>
+                          </div>
+                          <div style={{ fontSize: "0.95rem" }}>{msg.content}</div>
+                          <div
+                            style={{
+                              fontSize: "0.7rem",
+                              color: "var(--text-dim)",
+                              marginTop: "0.35rem",
+                              alignSelf: "flex-end"
+                            }}
+                          >
+                            {msgDate.toLocaleTimeString(undefined, { 
+                              hour: '2-digit', 
+                              minute: '2-digit' 
+                            })}
+                          </div>
                         </div>
                       </div>
-                      <div style={{ fontSize: "0.95rem" }}>{msg.content}</div>
-                      <div
-                        style={{
-                          fontSize: "0.75rem",
-                          color: "var(--text-dim)",
-                          marginTop: "0.25rem",
-                          alignSelf: "flex-end"
-                        }}
-                      >
-                        {new Date(msg.created_at).toLocaleTimeString()}
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
 
                 {/* Visual Indicator of other users typing */}
