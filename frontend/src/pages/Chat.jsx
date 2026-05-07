@@ -676,14 +676,65 @@ export default function Chat() {
                         minWidth: "150px",
                         boxShadow: "0 4px 12px rgba(0,0,0,0.2)"
                       }}>
-                        <button className="btn" style={{ padding: "0.3rem", fontSize: "0.8rem", textAlign: "left", background: "transparent", color: "var(--text)" }} onClick={() => handleSetWallpaper("")}>Theme Default</button>
-                        <button className="btn" style={{ padding: "0.3rem", fontSize: "0.8rem", textAlign: "left", background: "transparent", color: "var(--text)" }} onClick={() => handleSetWallpaper("https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=1000&auto=format&fit=crop")}>Abstract Dark</button>
-                        <button className="btn" style={{ padding: "0.3rem", fontSize: "0.8rem", textAlign: "left", background: "transparent", color: "var(--text)" }} onClick={() => handleSetWallpaper("https://images.unsplash.com/photo-1518605368461-1e1e38ce8ba6?q=80&w=1000&auto=format&fit=crop")}>Football Core</button>
-                        <button className="btn" style={{ padding: "0.3rem", fontSize: "0.8rem", textAlign: "left", background: "transparent", color: "var(--text)" }} onClick={() => handleSetWallpaper("https://images.unsplash.com/photo-1550684376-efcbd6e3f031?q=80&w=1000&auto=format&fit=crop")}>Neon Grid</button>
-                        <button className="btn" style={{ padding: "0.3rem", fontSize: "0.8rem", textAlign: "left", background: "transparent", color: "var(--text)" }} onClick={() => {
-                          const url = window.prompt("Enter Wallpaper Image URL:");
-                          if(url) handleSetWallpaper(url);
-                        }}>Custom URL...</button>
+                        <div style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(2, 1fr)",
+                          gap: "0.5rem",
+                          marginTop: "0.5rem"
+                        }}>
+                          {[
+                            { name: "Default", color: "var(--bg-card)", url: "" },
+                            { name: "Doodle", color: "#0b141a", url: "/doodle_wallpaper.png" },
+                            { name: "Night", color: "#1a1a2e", url: "https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?q=80&w=1920" },
+                            { name: "Minimal", color: "#2d3436", url: "https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=1920" },
+                            { name: "Ocean", color: "#00b894", url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1920" },
+                            { name: "Forest", color: "#2ecc71", url: "https://images.unsplash.com/photo-1511497584788-876760111969?q=80&w=1920" }
+                          ].map(wp => (
+                            <button
+                              key={wp.name}
+                              onClick={() => handleSetWallpaper(wp.url)}
+                              style={{
+                                background: wp.color,
+                                backgroundImage: wp.url ? `url('${wp.url}')` : "none",
+                                backgroundSize: "cover",
+                                height: "40px",
+                                border: "1px solid var(--border-subtle)",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                transition: "transform 0.2s",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "10px",
+                                fontWeight: "bold",
+                                color: "white",
+                                textShadow: "0 1px 3px rgba(0,0,0,0.8)"
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.05)"}
+                              onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+                            >
+                              {wp.name}
+                            </button>
+                          ))}
+                        </div>
+                        <button 
+                          className="btn" 
+                          style={{ 
+                            padding: "0.5rem", 
+                            fontSize: "0.8rem", 
+                            width: "100%", 
+                            marginTop: "0.5rem",
+                            background: "var(--bg-soft)",
+                            color: "var(--text)",
+                            border: "1px solid var(--border-subtle)"
+                          }} 
+                          onClick={() => {
+                            const url = window.prompt("Enter Wallpaper Image URL:");
+                            if(url) handleSetWallpaper(url);
+                          }}
+                        >
+                          Custom URL...
+                        </button>
                       </div>
                     )}
                   </div>
